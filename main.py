@@ -16,12 +16,65 @@
 
 import argparse
 
+from containerregistry.client import docker_creds
+from containerregistry.client import docker_name
+from containerregistry.client.v2_2 import append
+from containerregistry.client.v2_2 import docker_image
+from containerregistry.client.v2_2 import docker_session
+from containerregistry.transport import transport_pool
+
+import httplib2
+
+import builder
+import cache
+import context
+
+_THREADS=32
+
+
 parser = argparse.ArgumentParser(
     description='Construct images from source.')
+
+parser.add_argument('--base', action='store',
+                    help=('The name of the docker base image.'))
+
+parser.add_argument('--name', action='store',
+                    help=('The name of the docker image to push.'))
+
+parser.add_argument('--tarball', action='store',
+                    help='The path to the application tarball on GCS.')
 
 
 def main():
   args = parser.parse_args()
+
+  transport = transport_pool.Http(httplib2.Http, size=_THREADS)
+
+  # TODO(mattmoor): Support digest base images.
+  base_name = docker_name.Tag(args.base)
+  base_creds = docker_creds.DefaultKeychain.Resolve(base_name)
+
+  target_image = docker_name.Tag(args.name)
+  target_creds = docker_creds.DefaultKeychain.Resolve(target_image)
+
+  with context.Zip(args.tarball) as ctx:
+    with cache.Registry(
+        target_image.as_repository(), target_creds, transport) as cash:
+      with builder.From(ctx) as bldr:
+        with docker_image.FromRegistry(
+            base_name, base_creds, transport) as base_image:
+
+          # Create (or pull from cache) the base image with the package
+          # descriptor installation overlaid.
+          with bldr.CreatePackageBase(base_image, cash) as base_with_deps:
+            # Construct the application layer from the context.
+            app_layer = bldr.BuildAppLayer()
+
+            with append.Layer(base_with_deps, app_layer) as app_image:
+              with docker_session.Push(
+                  target_image, target_creds, transport,
+                  threads=_THREADS, mount=[base_name]) as session:
+                session.upload(app_image)
 
   print("Hi, One Build.")
 

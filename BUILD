@@ -12,6 +12,7 @@ py_library(
     name = "builder",
     srcs = ["builder.py"],
     deps = [
+        ":context",
         "@containerregistry",
     ]
 )

@@ -18,7 +18,14 @@ import abc
 
 class Base(object):
 
-  pass
+  # __enter__ and __exit__ allow use as a context manager.
+  @abc.abstractmethod
+  def __enter__(self):
+    """Initialize the context."""
+
+  def __exit__(self, unused_type, unused_value, unused_traceback):
+    """Cleanup the context."""
+    pass
 
 
 class Zip(Base):
@@ -26,5 +33,9 @@ class Zip(Base):
   def __init__(self, uri):
     super(Zip, self).__init__()
     self._uri = uri
+
+  def __enter__(self):
+    print('TODO: download the context.')
+    return self
 
 

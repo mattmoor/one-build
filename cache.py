@@ -14,12 +14,27 @@
 
 """This package defines the interface for caching objects."""
 
+import abc
 
 class Base(object):
 
-  pass
+  # __enter__ and __exit__ allow use as a context manager.
+  @abc.abstractmethod
+  def __enter__(self):
+    """Initialize the context."""
+
+  def __exit__(self, unused_type, unused_value, unused_traceback):
+    """Cleanup the context."""
+    pass
 
 
 class Registry(Base):
 
-  pass
+  def __init__(self, repo, creds, transport):
+    super(Base, self).__init__()
+    self._repo = repo
+    self._creds = creds
+    self._transport = transport
+
+  def __enter__(self):
+    return self
