@@ -16,8 +16,12 @@
 
 import abc
 import cStringIO
+import hashlib
 import os
 import tarfile
+
+from containerregistry.client.v2_2 import append
+
 
 import context
 
@@ -85,6 +89,8 @@ class JustApp(Base):
         out.addfile(info, fileobj=cStringIO.StringIO(content))
     return buf.getvalue()
 
+_PYTHON_NAMESPACE = 'python-requirements-cache'
+
 
 class Python(JustApp):
 
@@ -97,7 +103,24 @@ class Python(JustApp):
 
   def CreatePackageBase(self, base_image, cache):
     """Override."""
-    raise Exception('pip install is not implemented')
+    descriptor = self._ctx.GetFile('requirements.txt')
+    checksum = hashlib.sha256(descriptor).hexdigest()
+    hit = cache.Get(base_image, _PYTHON_NAMESPACE, checksum)
+    if hit:
+      return hit
+
+    # TODO(mattmoor): Replace this with pip install.
+    buf = cStringIO.StringIO()
+    with tarfile.open(fileobj=buf, mode='w:gz') as out:
+      content = descriptor
+      info = tarfile.TarInfo(os.path.join('app', 'requirements.txt'))
+      info.size = len(content)
+      out.addfile(info, fileobj=cStringIO.StringIO(content))
+    layer = buf.getvalue()
+
+    with append.Layer(base_image, layer) as dep_image:
+      cache.Store(base_image, _PYTHON_NAMESPACE, checksum, dep_image)
+    return append.Layer(base_image, layer)
 
 
 class Node(JustApp):
