@@ -15,6 +15,7 @@
 """This package defines the interface for accessing the build context."""
 
 import abc
+import os
 
 class Base(object):
 
@@ -27,15 +28,54 @@ class Base(object):
     """Cleanup the context."""
     pass
 
+  @abc.abstractmethod
+  def Contains(self, relative_path):
+    """Whether the application context contains the given file."""
 
-class Zip(Base):
+  @abc.abstractmethod
+  def ListFiles(self):
+    """Recursively enumerate the files under the workspace.
 
-  def __init__(self, uri):
-    super(Zip, self).__init__()
-    self._uri = uri
+    Yields:
+      the paths of files within the context, suitable for use with GetFile.
+    """
+
+  @abc.abstractmethod
+  def GetFile(self, relative_path):
+    """Retreive the contents of a particular file.
+
+    Args:
+      relative_path: The relative path of the file to read.
+
+    Returns:
+      the contents of the file.
+    """
+
+
+class Workspace(Base):
+
+  def __init__(self, directory):
+    super(Workspace, self).__init__()
+    self._directory = directory
 
   def __enter__(self):
-    print('TODO: download the context.')
     return self
 
+  def Contains(self, relative_path):
+    """Override."""
+    fqpath = os.path.join(self._directory, relative_path)
+    return os.path.isfile(fqpath)
 
+  def ListFiles(self):
+    """Override."""
+    dir = self._directory + '/'
+    for root, dirnames, filenames in os.walk(dir):
+      relative = root[len(dir):]
+      for fname in filenames:
+        yield os.path.join(relative, fname)
+
+  def GetFile(self, filename):
+    """Override."""
+    fqname = os.path.join(self._directory, filename)
+    with open(fqname, 'rb') as f:
+      return f.read()

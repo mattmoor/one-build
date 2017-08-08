@@ -16,7 +16,8 @@
 
 import abc
 import cStringIO
-import gzip
+import os
+import tarfile
 
 import context
 
@@ -57,10 +58,10 @@ class Base(object):
     pass
 
 
-class Null(Base):
+class JustApp(Base):
 
   def __init__(self, ctx):
-    super(Null, self).__init__(ctx)
+    super(JustApp, self).__init__(ctx)
 
   def __enter__(self):
     """Override."""
@@ -68,25 +69,57 @@ class Null(Base):
 
   def CreatePackageBase(self, base_image, cache):
     """Override."""
-    # TODO(mattmoor): WE NEED TO APPEND SHIT.
-    print('TODO: Write the application layer.')
+    # JustApp doesn't install anything, it just appends
+    # the application layer, so return the base image as
+    # our package base.
     return base_image
 
   def BuildAppLayer(self):
     """Override."""
     buf = cStringIO.StringIO()
-    f = gzip.GzipFile(mode='wb', fileobj=buf)
-    try:
-      print('TODO: Write the application data.')
-      # TODO(mattmoor): f.write(unzipped)
-    finally:
-      f.close()
+    with tarfile.open(fileobj=buf, mode='w:gz') as out:
+      for name in self._ctx.ListFiles():
+        content = self._ctx.GetFile(name)
+        info = tarfile.TarInfo(os.path.join('app', name))
+        info.size = len(content)
+        out.addfile(info, fileobj=cStringIO.StringIO(content))
     return buf.getvalue()
 
-# TODO(mattmoor): class Python(Base):
-# TODO(mattmoor): class Node(Base):
+
+class Python(JustApp):
+
+  def __init__(self, ctx):
+    super(Python, self).__init__(ctx)
+
+  def __enter__(self):
+    """Override."""
+    return self
+
+  def CreatePackageBase(self, base_image, cache):
+    """Override."""
+    raise Exception('pip install is not implemented')
+
+
+class Node(JustApp):
+
+  def __init__(self, ctx):
+    super(Python, self).__init__(ctx)
+
+  def __enter__(self):
+    """Override."""
+    return self
+
+  def CreatePackageBase(self, base_image, cache):
+    """Override."""
+    raise Exception('npm install is not implemented')
+
 # TODO(mattmoor): class Java(Base):
 
 
 def From(ctx):
-  return Null(ctx)
+  if ctx.Contains('requirements.txt'):
+    return Python(ctx)
+  elif ctx.Contains('package.json'):
+    return Node(ctx)
+  else:
+    return JustApp(ctx)

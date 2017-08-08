@@ -41,8 +41,8 @@ parser.add_argument('--base', action='store',
 parser.add_argument('--name', action='store',
                     help=('The name of the docker image to push.'))
 
-parser.add_argument('--tarball', action='store',
-                    help='The path to the application tarball on GCS.')
+parser.add_argument('--directory', action='store',
+                    help='The path where the application data sits.')
 
 
 def main():
@@ -57,7 +57,7 @@ def main():
   target_image = docker_name.Tag(args.name)
   target_creds = docker_creds.DefaultKeychain.Resolve(target_image)
 
-  with context.Zip(args.tarball) as ctx:
+  with context.Workspace(args.directory) as ctx:
     with cache.Registry(
         target_image.as_repository(), target_creds, transport) as cash:
       with builder.From(ctx) as bldr:
