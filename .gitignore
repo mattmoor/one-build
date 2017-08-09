@@ -31,5 +31,8 @@
 # Emacs garbage
 *~
 
+# Compiled Python
+*.pyc
+
 # Bazel directories
 bazel-*

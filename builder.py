@@ -17,8 +17,12 @@
 import abc
 import cStringIO
 import hashlib
+import json
 import os
+import subprocess
 import tarfile
+import tempfile
+import zipfile
 
 from containerregistry.client.v2_2 import append
 
@@ -99,7 +103,81 @@ class Python(JustApp):
 
   def __enter__(self):
     """Override."""
+    # TODO(mattmoor): Clean up.
+    self._tempdir = tempfile.mkdtemp()
     return self
+
+  def _ResolveWHLs(self, descriptor):
+    requirements = os.path.join(self._tempdir, 'requirements.txt')
+    with open(requirements, 'wb') as f:
+      f.write(descriptor)
+    # For now, invoke `pip wheel` on a temporary directory and return a list
+    # of the resulting .whl files.
+    fnull = open(os.devnull, 'w') # or verbose?
+    subprocess.check_call(
+      ['pip', 'wheel', '-w', self._tempdir, '-r', requirements],
+      stdout=fnull, stderr=fnull)
+    # Return a list of all of the .whl files.
+    return [os.path.join(self._tempdir, f)
+            for f in os.listdir(self._tempdir)
+            if f.endswith('.whl')]
+
+  def _AddWHLFiles(self, whl, tar):
+    # Open the .whl (zip) and put all its files into a .tar.gz laid
+    # out like it should be on the filesystem.
+    zf = zipfile.ZipFile(whl, 'r')
+
+    target_dir = 'usr/local/lib/python2.7/dist-packages/'
+    for name in zf.namelist():
+      content = zf.read(name)
+      info = tarfile.TarInfo(os.path.join(target_dir, name))
+      info.size = len(content)
+      tar.addfile(info, fileobj=cStringIO.StringIO(content))
+
+  def _AddWHLScripts(self, whl, tar):
+    # Open the .whl (zip) and create the scripts described in package metadata.
+    zf = zipfile.ZipFile(whl, 'r')
+
+    # http://python-packaging.readthedocs.io/en/latest/command-line-scripts.html
+    basename = os.path.basename(whl)
+    dist_parts = basename.split('-')
+    distribution = '-'.join(dist_parts[:2])
+    metadata = json.loads(zf.read(
+      os.path.join(distribution + '.dist-info', 'metadata.json')))
+
+    extensions = metadata.get('extensions')
+    if not extensions:
+      return
+
+    commands = extensions.get('python.commands')
+    if not commands:
+      return
+
+    scripts = commands.get('wrap_console', {})
+    # TODO(mattmoor): Use distutils when doing this for realz
+    target_dir = 'usr/local/bin'
+    # Create the scripts in a deterministic ordering.
+    for script in sorted(scripts):
+      descriptor = scripts[script]
+      (module, obj) = descriptor.split(':')
+      content = """#!/usr/bin/python
+
+# -*- coding: utf-8 -*-
+import re
+import sys
+
+from {module} import {obj}
+
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw?|\.exe)?$', '', sys.argv[0])
+    sys.exit(run())
+""".format(module=module, obj=obj)
+
+      target_path = os.path.join('usr/local/bin')
+      info = tarfile.TarInfo(os.path.join(target_dir, script))
+      info.size = len(content)
+      info.mode = 0777
+      tar.addfile(info, fileobj=cStringIO.StringIO(content))
 
   def CreatePackageBase(self, base_image, cache):
     """Override."""
@@ -109,13 +187,11 @@ class Python(JustApp):
     if hit:
       return hit
 
-    # TODO(mattmoor): Replace this with pip install.
     buf = cStringIO.StringIO()
     with tarfile.open(fileobj=buf, mode='w:gz') as out:
-      content = descriptor
-      info = tarfile.TarInfo(os.path.join('app', 'requirements.txt'))
-      info.size = len(content)
-      out.addfile(info, fileobj=cStringIO.StringIO(content))
+      for whl in self._ResolveWHLs(descriptor):
+        self._AddWHLFiles(whl, out)
+        self._AddWHLScripts(whl, out)
     layer = buf.getvalue()
 
     with append.Layer(base_image, layer) as dep_image:
