@@ -59,11 +59,13 @@ class Base(object):
 
 class Registry(Base):
 
-  def __init__(self, repo, creds, transport):
+  def __init__(self, repo, creds, transport, threads=1, mount=None):
     super(Base, self).__init__()
     self._repo = repo
     self._creds = creds
     self._transport = transport
+    self._threads = threads
+    self._mount = mount or []
 
   def __enter__(self):
     return self
@@ -88,6 +90,8 @@ class Registry(Base):
 
   def Store(self, base_image, namespace, checksum, value):
     entry = self._tag(base_image, namespace, checksum)
-    with docker_session.Push(entry, self._creds, self._transport) as session:
+    with docker_session.Push(
+        entry, self._creds, self._transport, threads=self._threads,
+        mount=self._mount) as session:
       session.upload(value)
       print('Stored base image to cache: %s.' % entry)

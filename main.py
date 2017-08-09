@@ -59,7 +59,8 @@ def main():
 
   with context.Workspace(args.directory) as ctx:
     with cache.Registry(
-        target_image.as_repository(), target_creds, transport) as cash:
+        target_image.as_repository(), target_creds, transport,
+        threads=_THREADS, mount=[base_name]) as cash:
       with builder.From(ctx) as bldr:
         with docker_image.FromRegistry(
             base_name, base_creds, transport) as base_image:
